@@ -17,6 +17,7 @@ RUN apk add --no-cache \
     bash \
     procps \
     curl \
+    ca-certificates \
     && ln -sf /usr/bin/php82 /usr/bin/php \
     && rm -rf /var/cache/apk/*
 

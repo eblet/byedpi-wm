@@ -3,6 +3,10 @@ set -e
 
 echo "Starting ByeDPI Web Manager..."
 
+# Update CA certificates
+echo "Updating CA certificates..."
+update-ca-certificates
+
 # Ensure log directories exist with correct permissions
 mkdir -p /var/log/supervisor /var/log/byedpi /app/logs/byedpi /run/nginx /app/data
 chown -R nginx:nginx /app /var/log/byedpi
@@ -19,6 +23,14 @@ echo "ByeDPI binary info:"
 ls -la /app/byedpi/ciadpi*
 echo "Architecture: $(uname -m)"
 echo "Platform: $(uname -a)"
+
+# Show SSL certificate info for debugging
+echo "SSL certificates info:"
+if [ -f "/etc/ssl/certs/ca-certificates.crt" ]; then
+    echo "System CA bundle found at /etc/ssl/certs/ca-certificates.crt ($(wc -l < /etc/ssl/certs/ca-certificates.crt) lines)"
+else
+    echo "Warning: System CA bundle not found at expected location"
+fi
 
 # Test if binary works
 if [ -x "/app/byedpi/ciadpi" ]; then
@@ -47,4 +59,4 @@ EOF
 fi
 
 echo "Starting supervisord..."
-exec /usr/bin/supervisord -c /etc/supervisord.conf 
+exec /usr/bin/supervisord -c /etc/supervisord.conf

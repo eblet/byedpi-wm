@@ -102,13 +102,42 @@ class CurlHandler {
     ];
 
     public static function executeRequest($data) {
-        $certPath = realpath(__DIR__ . '/curl_cert/cacert.pem');
-        if (!file_exists($certPath)) {
-            return [
-                'result' => false,
-                'message' => 'Файл сертификата не найден.',
-                'http_response_code' => '000'
+        // Попробуем найти системные сертификаты Alpine Linux
+        $systemCertPaths = [
+            '/etc/ssl/certs/ca-certificates.crt',  // Alpine Linux
+            '/etc/ssl/cert.pem',                   // BSD systems
+            '/etc/pki/tls/certs/ca-bundle.crt',   // CentOS/RHEL
+            '/etc/ssl/certs/ca-bundle.crt',       // openSUSE
+            '/usr/local/share/certs/ca-root-nss.crt' // FreeBSD
+        ];
+
+        $certPath = null;
+        $certInfo = [];
+
+        // Детальная проверка каждого пути к сертификатам
+        foreach ($systemCertPaths as $path) {
+            $exists = file_exists($path);
+            $readable = $exists ? is_readable($path) : false;
+            $size = ($exists && $readable) ? filesize($path) : 0;
+
+            $certInfo[] = [
+                'path' => $path,
+                'exists' => $exists,
+                'readable' => $readable,
+                'size' => $size
             ];
+
+            if ($exists && $readable && $size > 0) {
+                $certPath = $path;
+                break;
+            }
+        }
+
+        // Если не найден ни один сертификат, логируем информацию
+        if (!$certPath) {
+            error_log('ByeDPI-WM: Системные сертификаты не найдены. Проверенные пути: ' . json_encode($certInfo));
+        } else {
+            error_log('ByeDPI-WM: Используем системные сертификаты: ' . $certPath);
         }
 
         $ch = curl_init();
@@ -119,13 +148,13 @@ class CurlHandler {
                 'http_response_code' => '000'
             ];
         }
-        
+
         $port = (int)$data['socks5_server_port'];
         $connectTimeout = (int)$data['curl_connection_timeout'];
         $maxTimeout = (int)$data['curl_max_timeout'];
         $userAgentId = (int)$data['curl_user_agent'];
-        
-        curl_setopt_array($ch, [
+
+        $curlOptions = [
             CURLOPT_URL => $data['link'],
             CURLOPT_PROXY => "127.0.0.1:".$port,
             CURLOPT_PROXYTYPE => CURLPROXY_SOCKS5_HOSTNAME,
@@ -134,9 +163,16 @@ class CurlHandler {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HEADER => true,
             CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_CAINFO => $certPath
-        ]);
+            CURLOPT_SSL_VERIFYHOST => 2
+        ];
+
+        // Устанавливаем путь к сертификатам только если найден
+        if ($certPath) {
+            $curlOptions[CURLOPT_CAINFO] = $certPath;
+        }
+        // Если системные сертификаты не найдены, curl будет использовать встроенные
+
+        curl_setopt_array($ch, $curlOptions);
 
         if (strtolower($data['curl_http_method']) === 'head') {
             curl_setopt($ch, CURLOPT_NOBODY, true);
@@ -195,7 +231,7 @@ try {
     if (json_last_error() !== JSON_ERROR_NONE) {
         throw new Exception('Ошибка декодирования JSON: ' . json_last_error_msg());
     }
-    
+
     $validationResult = RequestValidator::validateRequest($input);
     if ($validationResult !== true) {
         echo json_encode($validationResult, JSON_UNESCAPED_UNICODE);
